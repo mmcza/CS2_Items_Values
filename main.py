@@ -14,6 +14,11 @@ def add_data_to_DB(result_dict):
                             port=postgres_port)
     cursor = conn.cursor()
 
+    # create dictionary with id for each case
+    cursor.execute("SELECT name, id FROM cases_list;")
+    rows = cursor.fetchall()
+    cases_dict = {name: id for name, id in rows}
+
     # get the next search_id
     cursor.execute("SELECT COALESCE(MAX(search_id), -1) + 1 FROM searches;")
     result = cursor.fetchone()
@@ -37,11 +42,19 @@ def add_data_to_DB(result_dict):
             search_id += currency[cur_currency]
 
         price = float(re.sub(r"[^\d.]", "", value))
-        cursor.execute("INSERT INTO containers (name, price, amount, search_id) VALUES (%s, %s, %s, %s);", (key, price, result_dict[key]['sell_listings'], search_id))
+        if key in cases_dict:
+            item_id = cases_dict[key]
+        else:
+            cases_dict[key] = len(cases_dict)
+            item_id = cases_dict[key]
+            cursor.execute("INSERT INTO cases_list (name, id) VALUES (%s, %s);", (key, item_id))
+        cursor.execute("INSERT INTO containers (item_id, price, amount, search_id) VALUES (%s, %s, %s, %s);", (item_id, price, result_dict[key]['sell_listings'], search_id))
 
     # Inserting information about searches to the database
     for curr in currency:
         cursor.execute("INSERT INTO searches (search_id, date_and_time, currency) VALUES (%s, %s, %s);", (next_search_id + currency[curr], timestamp_postgresql_format, curr))
+
+    conn.commit()
 
     print("Inserted data to DB")
 
@@ -104,7 +117,6 @@ def main():
     print(data)
 
 if __name__ == "__main__":
-    #data_scraping()
-    main()
-    #add_data_to_DB()
+    data_scraping()
+    #main()
 
