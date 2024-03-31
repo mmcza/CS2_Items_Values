@@ -1,6 +1,49 @@
 import time
 import requests
 import json
+import psycopg2
+from postgres_user import postgres_user, postgres_password, postgres_host, postgres_port, postgres_database
+import re
+from datetime import datetime
+
+def add_data_to_DB(result_dict):
+    conn = psycopg2.connect(database=postgres_database,
+                            host=postgres_host,
+                            user=postgres_user,
+                            password=postgres_password,
+                            port=postgres_port)
+    cursor = conn.cursor()
+
+    # get the next search_id
+    cursor.execute("SELECT COALESCE(MAX(search_id), -1) + 1 FROM searches;")
+    result = cursor.fetchone()
+    next_search_id = result[0]
+
+    current_timestamp = datetime.now()
+    timestamp_postgresql_format = current_timestamp.strftime('%Y-%m-%d %H:%M:%S.%f %z')
+    currency = {"$": 0}
+
+    # Inserting prices to the database
+    for key in result_dict:
+        value = result_dict[key]['sell_price_text']
+        match = re.search(r"[^\d.]+", value)
+        cur_currency = match.group() if match else ""
+        search_id = next_search_id
+
+        if cur_currency in currency:
+            search_id += currency[cur_currency]
+        else:
+            currency[cur_currency] = len(currency)
+            search_id += currency[cur_currency]
+
+        price = float(re.sub(r"[^\d.]", "", value))
+        cursor.execute("INSERT INTO containers (name, price, amount, search_id) VALUES (%s, %s, %s, %s);", (key, price, result_dict[key]['sell_listings'], search_id))
+
+    # Inserting information about searches to the database
+    for curr in currency:
+        cursor.execute("INSERT INTO searches (search_id, date_and_time, currency) VALUES (%s, %s, %s);", (next_search_id + currency[curr], timestamp_postgresql_format, curr))
+
+    print("Inserted data to DB")
 
 def data_scraping():
     initial_url = "https://steamcommunity.com/market/search/render/?query=&l=english&start=0&count=0&search_descriptions=0&sort_column=price&sort_dir=asc&category_730_ItemSet%5B%5D=any&category_730_ProPlayer%5B%5D=any&category_730_StickerCapsule%5B%5D=any&category_730_Tournament%5B%5D=any&category_730_TournamentTeam%5B%5D=any&category_730_Type%5B%5D=tag_CSGO_Type_WeaponCase&category_730_Weapon%5B%5D=any&appid=730&norender=1"
@@ -49,6 +92,11 @@ def data_scraping():
     with open('data.txt', 'w') as convert_file:
         convert_file.write(json.dumps(result_dict))
 
+    print("Data saved to file")
+
+    add_data_to_DB(result_dict)
+
+
 def main():
     with open('data.txt', 'r') as file:
         data = json.load(file)
@@ -56,6 +104,7 @@ def main():
     print(data)
 
 if __name__ == "__main__":
-    data_scraping()
+    #data_scraping()
     main()
+    #add_data_to_DB()
 
